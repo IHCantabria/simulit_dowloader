@@ -1,0 +1,298 @@
+  
+  download_data <- function(period, variable, parameter,
+                            temporal_resolution ,
+                            save_path, 
+                            year_or_season = NULL,
+                            scenario = NULL,
+                            output_format = "nc",  # Options: "ascii", "nc", "csv", "rdata"
+                            return_object = TRUE) {
+    
+    #____________________
+    # Validate parameters
+    valid_parameters <- c("Max", "Mean", "Min", "Percentile10", "Percentile50", "Percentile90")
+    #____________________
+    
+    #_________________________
+    # Validate output format
+    #_________________________
+    if (!output_format %in% c("ascii", "nc", "csv", "rdata")) {
+      stop("Invalid output_format. Choose 'ascii', 'nc', 'csv', or 'rdata'")
+    }
+    
+    # Projected variables restriction
+    projected_vars <- c("pH", "Wind", "Salinity", "SST", "SLR", "Nitrates", "Hs", "AirTemperature")
+    
+    # Construct the base URL
+    base_url <- "https://ihthredds.ihcantabria.com/thredds/dodsC/SIMULIT"
+    
+    #____________________________________________________
+    # Validate period and variables
+    #____________________________________________________
+    if (period == "Historical") {
+      available_vars <- c("pH", "Wind", "TidalRange", "ShearStress", "Salinity", "SST", "PAR", "Nitrate", 
+                          "MHW", "MCS", "Hs", "Currents", "BottomOrbitalSpeed", "AttenuationCoefficient", "AirTemperature")
+      if (!variable %in% available_vars) {
+        stop(paste("Invalid variable for Historical period. Available options:", 
+                   paste(available_vars, collapse = ", ")))
+      }
+      if (temporal_resolution %in% c("yearly", "winter", "summer", "spring", "autumn", "all")) {
+        dataset_url <- paste0(base_url, "/", period, "/", variable, "/", variable, "_", temporal_resolution, ".nc")
+      } else {
+        stop("Invalid temporal resolution for Historical. Options: yearly, winter, summer, spring, autumn, all")
+      }
+    } else if (period == "Projected") {
+      if (!variable %in% projected_vars) {
+        stop(paste("Invalid variable for Projected period. Available options:", 
+                   paste(projected_vars, collapse = ", ")))
+      }
+      if (scenario %in% c("SSP245", "SSP585") && year_or_season %in% c(2050, 2100)) {
+        # Special URL structure for projected variables
+        dataset_url <- paste0(base_url, "/", period, "/", variable, "/", scenario, "/", variable, ".nc")
+      } else {
+        stop("Invalid scenario or year for Projected. Scenario options: SSP245, SSP585. Year options: 2050, 2100")
+      }
+    } else {
+      stop("Invalid period specified. Choose 'Historical' or 'Projected'")
+    }
+    
+    if(temporal_resolution != "yearly"){
+      warning("Temporal resolution ignored for this resolution.")
+    }
+    #_________________________
+    # Opening the nc we want 
+    nc <- nc_open(dataset_url)
+    #_________________________
+    
+    #____________________________________________________
+    #Dealing with vairables with no parameters to select 
+    #____________________________________________________
+    
+    if (variable == "MHW" |variable == "MCS") {
+      if(parameter %in% c("Percentile10", "Percentile50", "Percentile90")){
+        warning("Parameter not available, select between: Max, Min or Mean")
+        
+      }
+      # Warn about yearly-only availability
+      if (temporal_resolution != "yearly") {
+        warning("No parameter selection allowed. \nMHW data is only available yearly. Using yearly resolution instead of ", temporal_resolution)
+      }
+      var_name <- "MHW"  # Use direct variable name
+    } 
+    else if (variable == "SLR") {
+      var_name <- "SLR"  # Use direct variable name
+    }
+    else {
+      var_name <- paste0(variable, "_", parameter)  # Standard naming
+    }
+    
+    #_________________________________________
+    # Check if variable exists
+    #_________________________________________
+    
+    if (!var_name %in% names(nc$var)) {
+      available_vars <- names(nc$var)
+      # Try to find closest match
+      if (variable %in% available_vars) {
+        var_name <- variable
+        message("Using direct variable name '", variable, "' instead of '", 
+                variable, "_", parameter, "'")
+      } else {
+        stop("Variable ", var_name, " not found. Available: ", paste(available_vars, collapse = ", "))
+      }
+    }
+    #_________________________________________
+    # Handle time dimension for projected data
+    #_________________________________________
+    
+    if (period == "Projected") {
+      time <- ncvar_get(nc, "time")
+      time_vals <- as.POSIXct(time, origin = "1970-01-01")
+      years <- as.numeric(format(time_vals, "%Y"))
+      
+      time_index <- which(years == year_or_season)
+      if (length(time_index) == 0) {
+        stop(paste("Year", year_or_season, "not found. Available years:", paste(unique(years), collapse = ", ")))
+      }
+      # filtering to keep the reuired year
+      data <- ncvar_get(nc, var_name, start = c(1, 1, time_index), count = c(-1, -1, 1))
+    } else {
+      
+      if(temporal_resolution == "yearly"){
+        time <- ncvar_get(nc, "time")
+        time_vals <- lubridate::as_datetime(time, tz = "UTC") #automatically sets teh 1970 start date
+        year_required <- lubridate::year(time_vals)
+        year_index <- which(year_required == year_or_season)
+        request_var <- var_name #paste0(var_name, "_", parameter)
+        
+         # filtering to keep the reuired year
+        data <- ncvar_get(nc, request_var, start = c(1, 1, year_index[1]), count = c(-1, -1, length(year_index)))
+        
+      }else{
+        data <- ncvar_get(nc, var_name)
+      }
+    }
+    
+    #____________________
+    # Get coordinates
+    #____________________
+    lon <- ncvar_get(nc, "lon")
+    lat <- ncvar_get(nc, "lat")
+    nc_close(nc)
+    
+    #______________________________________________
+    # Creating the raster with the correct rotation 
+    #_______________________________________________
+    if (period == "Projected") { #Create raster with 90-degree counter-clockwise rotation
+      rotated_matrix <- t(data)[ncol(data):1,]  # Rotate 90 degrees left
+      r <- raster(rotated_matrix,
+                  xmn = min(lon), xmx = max(lon),
+                  ymn = min(lat), ymx = max(lat),
+                  crs = CRS("+proj=longlat +datum=WGS84"))
+    }
+    if (period == "Historical" & temporal_resolution != "yearly") {
+      rotated_matrix <- t(data)[,nrow(data):1]  # Simple right rotation
+      r <- raster(rotated_matrix,
+                  xmn = min(lon), xmx = max(lon),
+                  ymn = min(lat), ymx = max(lat),
+                  crs = CRS("+proj=longlat +datum=WGS84"))
+      r <-  flip(r, direction = 'x')
+    }
+    
+    if (period == "Historical" & temporal_resolution == "yearly") {
+      # Rotate the matrix and create the raster
+      rotated_matrix <- t(data)[ncol(data):1,]  # Rotate 90 degrees left
+      r <- raster(rotated_matrix,
+                  xmn = min(lon), xmx = max(lon),
+                  ymn = min(lat), ymx = max(lat),
+                  crs = CRS("+proj=longlat +datum=WGS84"))
+    }
+    
+    # Create filename
+    fname_base <- paste0(
+      variable, 
+      if (!variable %in% c("MHW", "MCS", "SLR")) paste0("_", parameter) else "",
+      "_",
+      if (period == "Historical" && temporal_resolution == "yearly") "yearly_" else "",
+      year_or_season,
+      if (period == "Projected") paste0("_", scenario) else ""
+    )
+    
+    #__________________________________________________________________________
+    # Checking if the directory given is actally there, if its not then make it
+    #__________________________________________________________________________
+    if (!dir.exists(save_path)) dir.create(save_path, recursive = TRUE)
+    
+    #_________________________________________
+    # Output handling based on user selection
+    #_________________________________________
+    if (output_format == "ascii") {
+      raster::writeRaster(r, file.path(save_path, paste0(fname_base, ".asc")), format = "ascii", overwrite = TRUE)
+    } else if (output_format == "nc") {
+      raster::writeRaster(r, file.path(save_path, paste0(fname_base, ".nc")), format = "CDF", overwrite = TRUE)
+    } else {
+      df <- as.data.frame(r, xy = TRUE)
+      colnames(df) <- c("lon", "lat", "value")
+      
+      if (output_format == "csv") {
+        write.csv(df, file.path(save_path, paste0(fname_base, ".csv")), row.names = FALSE)
+      } else if (output_format == "rdata") {
+        save(df, file = file.path(save_path, paste0(fname_base, ".RData")))
+      }
+    }
+    
+    if (return_object) {
+      if (output_format %in% c("ascii", "nc")) return(r) else return(df)
+    } else {
+      return(invisible(NULL))
+    }
+    
+  }
+  
+  
+  
+  
+  # Example 1: Historical SST Mean in summer (ASCII)
+  result <- download_data(
+    period = "Historical",
+    variable = "PAR",
+    parameter = "Max",
+    temporal_resolution = "yearly",
+    year_or_season = 2004,
+    save_path = getwd(),
+    output_format = "nc"
+  )
+  
+  
+  # Example 1: Historical SST Mean in summer (ASCII)
+  result_sst <- download_data(
+    period = "Historical",
+    variable = "SST",
+    parameter = "Mean",
+    temporal_resolution = "all",
+    year_or_season = 2005,
+    save_path = getwd(),
+    output_format = "nc"
+  )
+  
+  # Example 1: Historical SST Mean in summer (ASCII)
+  result <- download_data(
+    period = "Historical",
+    variable = "MHW",
+    parameter = "Mean",
+    temporal_resolution = "yearly",
+    year_or_season = 2004,
+    save_path = getwd(),
+    output_format = "nc"
+  )
+  
+  
+  
+  # Example 1: Historical SST Mean in summer (ASCII)
+  result <- download_data(
+    period = "Historical",
+    variable = "MCS",
+    parameter = "Mean",
+    temporal_resolution = "yearly",
+    year_or_season = 2004,
+    save_path = getwd(),
+    output_format = "nc"
+  )
+  
+  # Projected Wind
+  result <- download_data(
+    period = "Projected",
+    variable = "Wind",
+    parameter = "Mean",
+    year_or_season = 2100,
+    scenario = "SSP585",
+    temporal_resolution = "yearly",
+    save_path = getwd(),
+    output_format = "nc"
+  )
+  
+  
+  # Projected Wind
+  result <- download_data(
+    period = "Projected",
+    variable = "SLR",
+    parameter = "SLR",
+    year_or_season = 2100,
+    scenario = "SSP245",
+    temporal_resolution = "yearly",
+    save_path = getwd(),
+    output_format = "nc"
+  )
+  
+  
+  # Projected Wind
+  result <- download_data(
+    period = "Projected",
+    variable = "Salinity",
+    parameter = "Max",
+    year_or_season = 2050,
+    temporal_resolution = "summer",
+    
+    scenario = "SSP245",
+    save_path = getwd(),
+    output_format = "rdata"
+  )
