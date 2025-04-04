@@ -19,7 +19,7 @@ Step-by-Step Guide:
 -------------------
 
 1. SETTING UP:
-Before using, copy the entire download_data() function code into R.
+Before using, copy the entire download_data() function code into R. Or Source() the function file.
 
 2. BASIC STRUCTURE:
 Always use this format:
