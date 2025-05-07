@@ -321,6 +321,7 @@ download_data <- function(period, variable, parameter,
       if (!variable %in% c("MHW", "MCS", "SLR")) paste0("_", parameter) else "",
       "_",
       if (period == "Historical" && temporal_resolution == "yearly") "yearly_" else "",
+      if (period != "Projected") paste0(temporal_resolution, "_") else "",  # Add temporal_resolution if not Projected
       year_or_season,
       if (period == "Projected") paste0("_", scenario) else ""
     )
@@ -329,7 +330,7 @@ download_data <- function(period, variable, parameter,
   # Output handling based on user selection
   #_________________________________________
   if (output_format == "ascii") {
-    raster::writeRaster(r, file.path(save_path, paste0(fname_base, ".asc")), format = "ascii", overwrite = TRUE)
+    raster::writeRaster(r, file.path(save_path, paste0(fname_base , ".asc")), format = "ascii", overwrite = TRUE)
   } else if (output_format == "nc") {
     raster::writeRaster(r, file.path(save_path, paste0(fname_base, ".nc")), format = "CDF", overwrite = TRUE)
   } else {
@@ -480,7 +481,7 @@ Example: Get 2050 wind speed projections (SSP2 - 4.5 scenario)
 ```{r projected_data}
 result_wind <- download_data(
   period = "Projected",
-  variable = "Wind",
+  variable = "SST",
   parameter = "Mean",
   temporal_resolution = "yearly", #its for the period of the year selected
   year_or_season = 2050,

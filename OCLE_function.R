@@ -227,6 +227,7 @@ download_data <- function(period, variable, parameter,
       if (!variable %in% c("MHW", "MCS", "SLR")) paste0("_", parameter) else "",
       "_",
       if (period == "Historical" && temporal_resolution == "yearly") "yearly_" else "",
+      if (period != "Projected") paste0(temporal_resolution, "_") else "",  # Add temporal_resolution if not Projected
       year_or_season,
       if (period == "Projected") paste0("_", scenario) else ""
     )
@@ -235,7 +236,7 @@ download_data <- function(period, variable, parameter,
   # Output handling based on user selection
   #_________________________________________
   if (output_format == "ascii") {
-    raster::writeRaster(r, file.path(save_path, paste0(fname_base, ".asc")), format = "ascii", overwrite = TRUE)
+    raster::writeRaster(r, file.path(save_path, paste0(fname_base , ".asc")), format = "ascii", overwrite = TRUE)
   } else if (output_format == "nc") {
     raster::writeRaster(r, file.path(save_path, paste0(fname_base, ".nc")), format = "CDF", overwrite = TRUE)
   } else {
@@ -257,9 +258,9 @@ download_data <- function(period, variable, parameter,
 }
 # # # Define parameters
 # period <- "Historical"  # Options: "Historical" or "Projected"
-# variable <- "MHW"  # Change according to the desired variable
-# parameter <- "Mean"  # Options: Max, Mean, Min, Std,Percentile10, Percentile50, Percentile90
-# temporal_resolution <- "yearly"  # Options: range, "yearly", "winter", "summer", "spring", "autumn", "all"
+# variable <- "Hs"  # Change according to the desired variable
+# parameter <- "Max"  # Options: Max, Mean, Min, Std,Percentile10, Percentile50, Percentile90
+# temporal_resolution <- "full"  # Options: range, "yearly", "winter", "summer", "spring", "autumn", "all"
 # year_or_season <- 2015 # Selecth the year if "yearly"
 # scenario <- NULL  # "SSP245" or "SSP585" if "Projected"
 # save_path <- getwd() # Path where the file will be saved
@@ -278,4 +279,4 @@ download_data <- function(period, variable, parameter,
 #               save_path,
 #               year_or_season,
 #               scenario,
-#               output_format = "nc" )
+#               output_format = "ascii" )
