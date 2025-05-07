@@ -193,23 +193,43 @@ download_data <- function(period, variable, parameter,
     
   }
   
-  # Create raster object
-  rotated_matrix <- t(data)[ncol(data):1,]  # Rotate 90 degrees left
-  r <- raster(rotated_matrix,
-              xmn = min(lon), xmx = max(lon),
-              ymn = min(lat), ymx = max(lat),
-              crs = CRS("+proj=longlat +datum=WGS84"))
-  
-  # Create filename
-  fname_base <- paste0(
-    variable, "_", parameter, "_", period, "_", temporal_resolution,
-    ifelse(!is.null(year_or_season), 
-           ifelse(temporal_resolution == "range", 
-                  paste0("_", min(year_or_season), "_", max(year_or_season)),
-                  paste0("_", year_or_season)),
-           ""),
-    ifelse(!is.null(scenario), paste0("_", scenario), "")
-  )
+   #______________________________________________
+    # Creating the raster with the correct rotation 
+    #_______________________________________________
+    if (period == "Projected") { #Create raster with 90-degree counter-clockwise rotation
+      rotated_matrix <- t(data)[ncol(data):1,]  # Rotate 90 degrees left
+      r <- raster(rotated_matrix,
+                  xmn = min(lon), xmx = max(lon),
+                  ymn = min(lat), ymx = max(lat),
+                  crs = CRS("+proj=longlat +datum=WGS84"))
+    }
+    if (period == "Historical" & temporal_resolution != "yearly") {
+      rotated_matrix <- t(data)[,nrow(data):1]  # Simple right rotation
+      r <- raster(rotated_matrix,
+                  xmn = min(lon), xmx = max(lon),
+                  ymn = min(lat), ymx = max(lat),
+                  crs = CRS("+proj=longlat +datum=WGS84"))
+      r <-  flip(r, direction = 'x')
+    }
+    
+    if (period == "Historical" & temporal_resolution == "yearly") {
+      # Rotate the matrix and create the raster
+      rotated_matrix <- t(data)[ncol(data):1,]  # Rotate 90 degrees left
+      r <- raster(rotated_matrix,
+                  xmn = min(lon), xmx = max(lon),
+                  ymn = min(lat), ymx = max(lat),
+                  crs = CRS("+proj=longlat +datum=WGS84"))
+    }
+    
+    # Create filename
+    fname_base <- paste0(
+      variable, 
+      if (!variable %in% c("MHW", "MCS", "SLR")) paste0("_", parameter) else "",
+      "_",
+      if (period == "Historical" && temporal_resolution == "yearly") "yearly_" else "",
+      year_or_season,
+      if (period == "Projected") paste0("_", scenario) else ""
+    )
   
   #_________________________________________
   # Output handling based on user selection
@@ -235,27 +255,27 @@ download_data <- function(period, variable, parameter,
     return(invisible(NULL))
   }
 }
-# Define parameters
-period <- "Historical"  # Options: "Historical" or "Projected"
-variable <- "MHW"  # Change according to the desired variable
-parameter <- "Min"  # Options: Max, Mean, Min, Std,Percentile10, Percentile50, Percentile90
-temporal_resolution <- "yearly"  # Options: range, "yearly", "winter", "summer", "spring", "autumn", "all"
-year_or_season <- 2015 # Selecth the year if "yearly"
-scenario <- "SSP245"  # "SSP245" or "SSP585" if "Projected"
-save_path <- getwd() # Path where the file will be saved
-
-# Get the list of available variables
-available_variables <- get_available_variables(dataset_period)
-print("Available variables:")
-print(available_variables)
-
-
-# Call the function
-download_data(period,
-              variable,
-              parameter,
-              temporal_resolution,
-              save_path,
-              year_or_season,
-              scenario
-              )
+# # # Define parameters
+# period <- "Historical"  # Options: "Historical" or "Projected"
+# variable <- "MHW"  # Change according to the desired variable
+# parameter <- "Mean"  # Options: Max, Mean, Min, Std,Percentile10, Percentile50, Percentile90
+# temporal_resolution <- "yearly"  # Options: range, "yearly", "winter", "summer", "spring", "autumn", "all"
+# year_or_season <- 2015 # Selecth the year if "yearly"
+# scenario <- NULL  # "SSP245" or "SSP585" if "Projected"
+# save_path <- getwd() # Path where the file will be saved
+# 
+# # Get the list of available variables
+# available_variables <- get_available_variables(dataset_period)
+# print("Available variables:")
+# print(available_variables)
+# 
+# 
+# # Call the function
+# download_data(period,
+#               variable,
+#               parameter,
+#               temporal_resolution,
+#               save_path,
+#               year_or_season,
+#               scenario,
+#               output_format = "nc" )

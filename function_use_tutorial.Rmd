@@ -94,7 +94,10 @@ Basic Requirements:
 -   Internet connection
 
 ```{r, echo=FALSE}
- # Predefined available variables for each period
+# OCLE download
+# Function to download environmental information from OCLE database (https://ocle.ihcantabria.com/)
+
+# Predefined available variables for each period
 available_variables_historical <- c("pH", "Wind", "TidalRange", "ShearStress", "Salinity", "SST", "PAR", "Nitrate", "MHW", "MCS", "Hs", "Currents", "BottomOrbitalSpeed", "AttenuationCoefficient", "AirTemperature")
 available_variables_projected <- c("pH", "Wind", "Salinity", "SST", "SLR", "Nitrates", "Hs", "AirTemperature")
 
@@ -284,23 +287,43 @@ download_data <- function(period, variable, parameter,
     
   }
   
-  # Create raster object
-  rotated_matrix <- t(data)[ncol(data):1,]  # Rotate 90 degrees left
-  r <- raster(rotated_matrix,
-              xmn = min(lon), xmx = max(lon),
-              ymn = min(lat), ymx = max(lat),
-              crs = CRS("+proj=longlat +datum=WGS84"))
-  
-  # Create filename
-  fname_base <- paste0(
-    variable, "_", parameter, "_", period, "_", temporal_resolution,
-    ifelse(!is.null(year_or_season), 
-           ifelse(temporal_resolution == "range", 
-                  paste0("_", min(year_or_season), "_", max(year_or_season)),
-                  paste0("_", year_or_season)),
-           ""),
-    ifelse(!is.null(scenario), paste0("_", scenario), "")
-  )
+   #______________________________________________
+    # Creating the raster with the correct rotation 
+    #_______________________________________________
+    if (period == "Projected") { #Create raster with 90-degree counter-clockwise rotation
+      rotated_matrix <- t(data)[ncol(data):1,]  # Rotate 90 degrees left
+      r <- raster(rotated_matrix,
+                  xmn = min(lon), xmx = max(lon),
+                  ymn = min(lat), ymx = max(lat),
+                  crs = CRS("+proj=longlat +datum=WGS84"))
+    }
+    if (period == "Historical" & temporal_resolution != "yearly") {
+      rotated_matrix <- t(data)[,nrow(data):1]  # Simple right rotation
+      r <- raster(rotated_matrix,
+                  xmn = min(lon), xmx = max(lon),
+                  ymn = min(lat), ymx = max(lat),
+                  crs = CRS("+proj=longlat +datum=WGS84"))
+      r <-  flip(r, direction = 'x')
+    }
+    
+    if (period == "Historical" & temporal_resolution == "yearly") {
+      # Rotate the matrix and create the raster
+      rotated_matrix <- t(data)[ncol(data):1,]  # Rotate 90 degrees left
+      r <- raster(rotated_matrix,
+                  xmn = min(lon), xmx = max(lon),
+                  ymn = min(lat), ymx = max(lat),
+                  crs = CRS("+proj=longlat +datum=WGS84"))
+    }
+    
+    # Create filename
+    fname_base <- paste0(
+      variable, 
+      if (!variable %in% c("MHW", "MCS", "SLR")) paste0("_", parameter) else "",
+      "_",
+      if (period == "Historical" && temporal_resolution == "yearly") "yearly_" else "",
+      year_or_season,
+      if (period == "Projected") paste0("_", scenario) else ""
+    )
   
   #_________________________________________
   # Output handling based on user selection
